@@ -1,0 +1,29 @@
+{
+  "strategy": {
+    "name": "ADXStrategy",
+    "module": "adx_strategy",
+    "params": {
+      "adx_period": 8,
+      "adx_rising_lookback": 2,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.4
+    }
+  },
+  "backtest_params": {
+    "start_date": "2020-01-01",
+    "end_date": "2025-05-31",
+    "initial_capital": 100000.0,
+    "commission_rate": 0.015,
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "NVDA",
+      "TSLA",
+      "PANW",
+      "CRWD",
+      "AMZN",
+      "AMD"
+    ]
+  }
+}
