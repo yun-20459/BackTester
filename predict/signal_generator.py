@@ -14,10 +14,13 @@ from common import market
 
 logger = logger_utils.get_logger(__name__)
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    handlers=[logging.StreamHandler()])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler("predict/predict.log", mode='w', encoding='utf-8')
+    ])
 
 
 def _parse_arguments():

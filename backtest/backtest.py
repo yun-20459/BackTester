@@ -1,8 +1,7 @@
 import matplotlib.pyplot as plt
 import argparse
-import pandas as pd
-from datetime import datetime, date
 import logging
+from datetime import datetime, date
 import json  # Import json for config file parsing
 import importlib  # Import importlib for dynamic module loading
 
@@ -10,6 +9,16 @@ from utils import data_utils
 from common import data
 from core import engine as backtesting_engine
 from utils import logger_utils
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler("backtest/backtest.log",
+                            mode='w',
+                            encoding='utf-8')
+    ])
 
 logger = logger_utils.get_logger(__name__)
 

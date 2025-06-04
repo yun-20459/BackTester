@@ -1,2 +1,3 @@
 __pycache__
-backtest.log
+*/config.json
+*.log

@@ -44,6 +44,7 @@ class ADXStrategy(base.BaseStrategy):
     logger.info(f"    Stop Loss Percent: {self.stop_loss_pct * 100:.2f}%")
     logger.info(f"    Take Profit Percent: {self.take_profit_pct * 100:.2f}%")
     logger.info(f"    ADX Exit Threshold: {self.adx_exit_threshold}")
+    logger.info(f"    Sell Percentage: {self.sell_percentage * 100:.2f}%")
 
   def on_bar(self, symbol: str, current_data: dict,
              historical_data: pd.DataFrame) -> tuple[market.Signal, int]:
