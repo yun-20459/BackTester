@@ -8,7 +8,7 @@ python -m  backtest.backtest --start_date 2020-06-04 --end_date 2025-06-03 --tic
 
 ## Running today signal
 
-For example SMA
+For example ADX strategy
 
 ```bash
 python -m predict.signal_generator --config_path predict/config.json
