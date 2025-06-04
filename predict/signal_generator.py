@@ -103,18 +103,16 @@ def _prepare_historical_data(symbol: str, current_date: date,
 
 def get_today_signal(
     symbol: str,
-    current_price: float,
     strategy_config: dict,
     historical_period_days: int,
     initial_dummy_capital: float,
     db_path: str = data.DATA_DB_NAME) -> tuple[market.Signal, int]:
   """
-    Generates a trading signal for a given stock and current price using a specified strategy
-    loaded dynamically from a configuration.
+    Generates a trading signal for a given stock using a specified strategy.
+    Automatically fetches today's price from yfinance.
 
     Args:
         symbol (str): The stock symbol to get the signal for.
-        current_price (float): Today's current closing price for the stock.
         strategy_config (dict): Dictionary containing 'name', 'module', and 'params' for the strategy.
         historical_period_days (int): Number of historical days to fetch for strategy calculation.
         initial_dummy_capital (float): Initial capital for the dummy broker (used for position checks).
@@ -125,10 +123,18 @@ def get_today_signal(
                                  and the quantity. If Signal.HOLD, quantity will be 0.
     """
   logger.info(
-      f"Generating signal for {symbol} at current price {current_price:.2f} using strategy '{strategy_config['name']}'..."
+      f"Generating signal for {symbol} using strategy '{strategy_config['name']}'..."
   )
 
   today = date.today()
+
+  # --- Automatically fetch today's price and save to DB ---
+  current_price = data_utils.download_and_save_latest_data(symbol, db_path)
+  if current_price is None:
+    logger.error(
+        f"Could not get current price for {symbol}. Cannot generate signal.")
+    return market.Signal.HOLD, 0
+
   historical_data = _prepare_historical_data(symbol, today,
                                              historical_period_days, db_path)
 
@@ -136,8 +142,6 @@ def get_today_signal(
     return market.Signal.HOLD, 0
 
   # Create a dummy AccountSimulator to pass to the strategy
-  # Note: A new dummy broker is created for each signal generation.
-  # This means strategies won't retain state across different symbols in this context.
   dummy_broker = account.AccountSimulator(initial_dummy_capital,
                                           commission_rate=0.0)
 
@@ -157,7 +161,6 @@ def get_today_signal(
     return market.Signal.HOLD, 0
 
   # Instantiate the strategy with parameters from config
-  # Pass the dummy_broker to the strategy
   strategy = strategy_class(dummy_broker, **strategy_params)
 
   # Prepare current day's data as a dictionary, ensuring 'Date' is explicitly included
@@ -196,66 +199,32 @@ def main():
   strategy_config = config.get('strategy')
   signal_generation_params = config.get('signal_generation_params', {})
 
-  # Get stocks_info from config
-  config_stocks_info = config.get('stocks_info', [])
+  # Get stock_list from config
+  config_stock_list = config.get('stock_list',
+                                 [])  # Changed from stocks_info to stock_list
 
   # Validate essential config parts
   if not strategy_config or 'name' not in strategy_config or 'module' not in strategy_config:
     logger.critical(
         "Config error: 'strategy' section or 'name'/'module' missing.")
     exit(1)
-  if not config_stocks_info:
-    logger.critical("Config error: 'stocks_info' section is missing or empty.")
+  if not config_stock_list:  # Validate stock_list
+    logger.critical("Config error: 'stock_list' section is missing or empty.")
     exit(1)
 
-  # Determine target symbols and prices based on CLI overrides or config
-  target_stocks_info = []
-  if args.symbols:
-    cli_symbols = [s.strip().upper() for s in args.symbols.split(',')]
-    cli_prices = [float(p.strip())
-                  for p in args.prices.split(',')] if args.prices else []
+  # Determine target symbols from config
+  target_symbols = [symbol.upper() for symbol in config_stock_list
+                    ]  # Directly use the list of symbols
 
-    if args.prices and len(cli_symbols) != len(cli_prices):
-      logger.critical(
-          "Error: Number of symbols and prices provided via CLI do not match.")
-      exit(1)
-
-    # Create stock info dicts from CLI args
-    for i, symbol in enumerate(cli_symbols):
-      price = cli_prices[i] if i < len(cli_prices) else None
-      if price is None:  # If prices are not provided via CLI, try to get from config
-        for s_info in config_stocks_info:
-          if s_info['symbol'].upper() == symbol:
-            price = s_info.get('current_price')
-            break
-        if price is None:
-          logger.critical(
-              f"Error: Current price for {symbol} not provided via CLI or found in config."
-          )
-          exit(1)
-      target_stocks_info.append({'symbol': symbol, 'current_price': price})
-  else:
-    # Use stocks_info from config if no CLI override
-    target_stocks_info = [{
-        'symbol': s_info['symbol'].upper(),
-        'current_price': s_info['current_price']
-    } for s_info in config_stocks_info
-                          if 'symbol' in s_info and 'current_price' in s_info]
-
-    if not target_stocks_info:
-      logger.critical(
-          "Config error: No valid stock information found in 'stocks_info' section."
-      )
-      exit(1)
+  if not target_symbols:
+    logger.critical(
+        "Config error: No valid stock symbols found in 'stock_list' section.")
+    exit(1)
 
   all_signals = {}
-  for stock_info in target_stocks_info:
-    symbol = stock_info['symbol']
-    current_price = stock_info['current_price']
-
+  for symbol in target_symbols:
     action, quantity = get_today_signal(
         symbol=symbol,
-        current_price=current_price,
         strategy_config=strategy_config,
         historical_period_days=signal_generation_params.get(
             'historical_period_days', 200),
