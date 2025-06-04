@@ -139,8 +139,6 @@ class BacktestingEngine:
       logger.error("Please set backtesting data and strategy first.")
       return
 
-    logger.info("\n--- Starting Backtest ---")
-
     for i, current_date in enumerate(self.all_dates):
       daily_closing_prices = {}
 
