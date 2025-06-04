@@ -1,16 +1,15 @@
 import pandas as pd
-import talib  # Import TA-Lib library
-import numpy as np  # Import numpy to handle NaN values
+import talib
+import numpy as np
 
-from strategy.base import BaseStrategy
+from strategy import base
 from utils import logger_utils
-from common import market  # Changed import style
+from common import market
 
-# Get a logger instance for this module
 logger = logger_utils.get_logger(__name__)
 
 
-class ADXStrategy(BaseStrategy):
+class ADXStrategy(base.BaseStrategy):
   """
     A trading strategy based on ADX, +DI, and -DI indicators for trend following,
     with multiple exit conditions for risk management.
@@ -36,8 +35,7 @@ class ADXStrategy(BaseStrategy):
     self.adx_exit_threshold = adx_exit_threshold
     self.sell_percentage = sell_percentage
 
-    self.positions_status = {
-    }  # {'symbol': {'in_position': bool, 'entry_price': float}}
+    self.positions_status = {}
 
     logger.info(f"  ADX Strategy Parameters:")
     logger.info(f"    ADX Period: {self.adx_period}")
@@ -47,9 +45,8 @@ class ADXStrategy(BaseStrategy):
     logger.info(f"    Take Profit Percent: {self.take_profit_pct * 100:.2f}%")
     logger.info(f"    ADX Exit Threshold: {self.adx_exit_threshold}")
 
-  def on_bar(
-      self, symbol: str, current_data: dict, historical_data: pd.DataFrame
-  ) -> tuple[market.Signal, int]:  # Use market.Signal
+  def on_bar(self, symbol: str, current_data: dict,
+             historical_data: pd.DataFrame) -> tuple[market.Signal, int]:
     """
         Implements the ADX strategy's trading logic for each bar and returns a signal.
 
