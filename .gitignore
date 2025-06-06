@@ -2,3 +2,4 @@ __pycache__
 */config.json
 *.log
 strategy/*_strategy.py
+*.pt
