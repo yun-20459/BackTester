@@ -186,28 +186,39 @@ Create or modify a config.json file (e.g., `backtest_config.json` in your projec
 **Example: ML-Based Strategy (e.g., MyMLStrategy)**
 
 ```json
-{  
-  "strategy": {  
-    "name": "MyMLStrategy",  
-    "module": "my_ml_strategy",  
-    "params": {  
-      "model_path": "ml_models/my_pytorch_model_state_dict.pt",  
-      "model_architecture_name": "SimpleBinaryClassifier",  
-      "model_input_dim": 6,  
-      "feature_cols": ["SMA_10", "RSI_14", "MACD", "MACD_Signal", "Daily_Return", "Prev_Close"],  
-      "buy_threshold": 0.55,  
-      "sell_threshold": 0.45,  
-      "stop_loss_pct": 0.05,  
-      "take_profit_pct": 0.15  
-    }  
-  },  
-  "backtest_params": {  
-    "start_date": "2020-01-01",  
-    "end_date": "2024-12-31",  
-    "initial_capital": 100000.0,  
-    "commission_rate": 0.015,  
-    "symbols": ["AAPL", "MSFT", "GOOG"]  
-  }  
+{
+  "strategy": {
+    "name": "MyMLStrategy",
+    "module": "example_ml",
+    "params": {
+      "model_path": "ml_models/my_pytorch_model_state_dict.pt",
+      "model_architecture_name": "SimpleBinaryClassifier",
+      "model_input_dim": 6,
+      "feature_cols": [
+        "SMA_10",
+        "RSI_14",
+        "MACD",
+        "MACD_Signal",
+        "Daily_Return",
+        "Prev_Close"
+      ],
+      "buy_threshold": 0.55,
+      "sell_threshold": 0.45,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.15
+    }
+  },
+  "backtest_params": {
+    "start_date": "2020-01-01",
+    "end_date": "2024-12-31",
+    "initial_capital": 100000.0,
+    "commission_rate": 0.015,
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "GOOG"
+    ]
+  }
 }
 ```
 
@@ -258,30 +269,37 @@ Create or modify a config.json file (e.g., `predict/signal_config.json`) within 
 **Example: ML-Based Strategy (e.g., MyMLStrategy)**
 
 ```json
-{  
-  "strategy": {  
-    "name": "MyMLStrategy",  
-    "module": "example_ml",  
-    "params": {  
-      "model_path": "ml_models/my_pytorch_model_state_dict.pt",  
-      "model_architecture_name": "SimpleBinaryClassifier",  
-      "model_input_dim": 6,  
-      "feature_cols": ["SMA_10", "RSI_14", "MACD", "MACD_Signal", "Daily_Return", "Prev_Close"],  
-      "buy_threshold": 0.55,  
-      "sell_threshold": 0.45,  
-      "stop_loss_pct": 0.05,  
-      "take_profit_pct": 0.15  
-    }  
-  },  
-  "signal_generation_params": {  
-    "historical_period_days": 200,  
-    "initial_dummy_capital": 100000.0  
-  },  
-  "stock_list": [  
-    "AAPL",  
-    "MSFT",  
-    "GOOG"  
-  ]  
+{
+  "strategy": {
+    "name": "MyMLStrategy",
+    "module": "example_ml",
+    "params": {
+      "model_path": "ml_models/my_pytorch_model_state_dict.pt",
+      "model_architecture_name": "SimpleBinaryClassifier",
+      "model_input_dim": 6,
+      "feature_cols": [
+        "SMA_10",
+        "RSI_14",
+        "MACD",
+        "MACD_Signal",
+        "Daily_Return",
+        "Prev_Close"
+      ],
+      "buy_threshold": 0.55,
+      "sell_threshold": 0.45,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.15
+    }
+  },
+  "signal_generation_params": {
+    "historical_period_days": 200,
+    "initial_dummy_capital": 100000.0
+  },
+  "stock_list": [
+    "AAPL",
+    "MSFT",
+    "GOOG"
+  ]
 }
 ```
 
