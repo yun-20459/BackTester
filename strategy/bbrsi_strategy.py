@@ -1,11 +1,12 @@
-import pandas as pd
 import logging
-import talib
-import numpy as np
 
+import numpy as np
+import pandas as pd
+import talib
+
+from common import market
 from strategy import base
 from utils import logger_utils
-from common import market
 
 # Get a logger instance for this module
 logger = logger_utils.get_logger(__name__)

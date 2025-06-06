@@ -1,8 +1,10 @@
-import pandas as pd
 import numpy as np
-from core import account
-from utils import logger_utils
+import pandas as pd
+
 from common import market
+from core import account
+from strategy import base
+from utils import logger_utils
 
 logger = logger_utils.get_logger(__name__)
 
@@ -49,8 +51,8 @@ class BacktestingEngine:
     for symbol, df in data_dict.items():
       if not isinstance(df, pd.DataFrame) or df.empty:
         logger.warning(
-            f"Data for stock {symbol} is empty or in incorrect format, skipping."
-        )
+            "Data for stock %s is empty or in incorrect format, skipping.",
+            symbol)
         continue
 
       df_sorted = df.sort_index()
@@ -58,26 +60,28 @@ class BacktestingEngine:
       self.symbols.append(symbol)
       all_dates_set.update(df_sorted.index.tolist())
 
-      logger.info(
-          f"Backtesting data loaded, stock: {symbol}, data range: {df_sorted.index.min().strftime('%Y-%m-%d')} to {df_sorted.index.max().strftime('%Y-%m-%d')}"
-      )
+      logger.info("Backtesting data loaded, stock: %s, data range: %s to %s",
+                  symbol,
+                  df_sorted.index.min().strftime('%Y-%m-%d'),
+                  df_sorted.index.max().strftime('%Y-%m-%d'))
 
     self.symbols.sort()
     self.all_dates = pd.DatetimeIndex(sorted(list(all_dates_set)))
-    logger.info(
-        f"Total backtesting date range: {self.all_dates.min().strftime('%Y-%m-%d')} to {self.all_dates.max().strftime('%Y-%m-%d')}"
-    )
+    logger.info("Total backtesting date range: %s to %s",
+                self.all_dates.min().strftime('%Y-%m-%d'),
+                self.all_dates.max().strftime('%Y-%m-%d'))
 
-  def set_strategy(self, strategy_class, *args, **kwargs):
+  def set_strategy(self, strategy_class: base.BaseStrategy, *args, **kwargs):
     """
         Sets the backtesting strategy.
 
         Args:
             strategy_class: Strategy class (e.g., MyStrategy).
-            *args, **kwargs: Arguments passed to the strategy's initialization function.
+            *args: Variable length argument list to pass to the strategy's initialization function.
+            **kwargs: Arbitrary keyword arguments to pass to the strategy's initialization function.
         """
     self.strategy = strategy_class(self.broker, *args, **kwargs)
-    logger.info(f"Strategy '{strategy_class.__name__}' has been set.")
+    logger.info("Strategy '%s' has been set.", strategy_class.__name__)
 
   def _calculate_max_drawdown(self) -> float:
     """
@@ -139,7 +143,7 @@ class BacktestingEngine:
       logger.error("Please set backtesting data and strategy first.")
       return
 
-    for i, current_date in enumerate(self.all_dates):
+    for _, current_date in enumerate(self.all_dates):
       daily_closing_prices = {}
 
       for symbol in self.symbols:
@@ -182,25 +186,26 @@ class BacktestingEngine:
     total_return = (final_equity - self.broker.initial_capital
                     ) / self.broker.initial_capital * 100
 
-    logger.info(f"Final Equity: {final_equity:,.2f}")
-    logger.info(f"Total Return: {total_return:.2f}%")
+    logger.info("Final Equity: %.2f", final_equity)
+    logger.info("Total Return: %.2f%%", total_return)
 
     max_drawdown = self._calculate_max_drawdown()
     sharpe_ratio = self._calculate_sharpe_ratio(annual_risk_free_rate=0.02)
 
-    logger.info(f"Max Drawdown: {max_drawdown:.2f}%")
-    logger.info(f"Sharpe Ratio: {sharpe_ratio:.4f}")
+    logger.info("Max Drawdown: %.2f%%", max_drawdown)
+    logger.info("Sharpe Ratio: %.4f", sharpe_ratio)
     logger.info(
-        "  (Note: Sharpe Ratio calculation assumes an annualized risk-free rate of 2% and 252 trading days per year.)"
+        "  (Note: Sharpe Ratio calculation assumes an annualized risk-free rate of 2%% and 252 trading days per year.)"
     )
 
-    logger.info(
-        f"\n--- Transaction Log ({len(self.broker.get_transaction_log())} records) ---"
-    )
+    logger.info("\n--- Transaction Log (%d records) ---",
+                len(self.broker.get_transaction_log()))
     if self.broker.get_transaction_log():
       for log in self.broker.get_transaction_log():
         logger.info(
-            f"  {log['timestamp'].strftime('%Y-%m-%d')} | {log['type']} {log['quantity']} shares of {log['symbol']} | Price: {log['price']:.2f} | Fee: {log['fee']:.2f} | Cash: {log['cash_after_trade']:.2f}"
-        )
+            "  %s | %s %d shares of %s | Price: %.2f | Fee: %.2f | Cash: %.2f",
+            log['timestamp'].strftime('%Y-%m-%d'), log['type'],
+            log['quantity'], log['symbol'], log['price'], log['fee'],
+            log['cash_after_trade'])
     else:
       logger.info("No transactions occurred.")

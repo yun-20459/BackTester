@@ -1,10 +1,10 @@
+import numpy as np
 import pandas as pd
 import talib
-import numpy as np
 
+from common import market
 from strategy import base
 from utils import logger_utils
-from common import market
 
 logger = logger_utils.get_logger(__name__)
 

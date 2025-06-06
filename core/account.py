@@ -29,9 +29,8 @@ class AccountSimulator:
     self.equity_curve = []  # Equity curve
     self.commission_rate = commission_rate  # Commission rate
 
-    logger.info(
-        f"Simulated account initialized, initial capital: {self.initial_capital:,.2f}"
-    )
+    logger.info("Simulated account initialized, initial capital: %.2f",
+                self.initial_capital)
 
   def _record_transaction(self, timestamp, symbol, trade_type, price, quantity,
                           amount, fee):
@@ -71,8 +70,8 @@ class AccountSimulator:
         """
     if order_type != 'MARKET':
       logger.warning(
-          f"Warning: Only MARKET orders are currently supported. Order type '{order_type}' was not processed."
-      )
+          "Warning: Only MARKET orders are currently supported. Order type '{%s}' was not processed.",
+          order_type)
       return
 
     if quantity == 0:
@@ -104,7 +103,12 @@ class AccountSimulator:
                                  trade_amount, fee)
       else:
         logger.info(
-            f"  {timestamp.strftime('%Y-%m-%d')} - Insufficient funds to buy {quantity} shares of {symbol}. Required: {trade_amount + fee:,.2f}, Cash: {self.current_cash:,.2f}"
+            "  %s - Insufficient funds to buy %s shares of %s. Required: %.2f, Cash: %.2f",
+            timestamp.strftime('%Y-%m-%d'),
+            quantity,
+            symbol,
+            trade_amount + fee,
+            self.current_cash,
         )
 
     elif quantity < 0:  # Sell
@@ -123,8 +127,9 @@ class AccountSimulator:
                                  abs_quantity, abs(trade_amount), fee)
       else:
         logger.info(
-            f"  {timestamp.strftime('%Y-%m-%d')} - Insufficient position to sell {abs_quantity} shares of {symbol}. Current position: {self.positions.get(symbol, {}).get('quantity', 0)} shares"
-        )
+            "  %s - Insufficient position to sell %s shares of %s. Current position: %s shares",
+            timestamp.strftime('%Y-%m-%d'), abs_quantity, symbol,
+            self.positions.get(symbol, {}).get('quantity', 0))
 
   def get_current_equity(self, current_prices: dict) -> float:
     """
@@ -142,8 +147,8 @@ class AccountSimulator:
         portfolio_value += pos_info['quantity'] * current_prices[symbol]
       else:
         logger.warning(
-            f"Warning: Could not get current price for stock {symbol}, its position value will not be included in total equity."
-        )
+            "Warning: Could not get current price for stock %s, its position value will not be included in total equity.",
+            symbol)
 
     total_equity = self.current_cash + portfolio_value
     return total_equity

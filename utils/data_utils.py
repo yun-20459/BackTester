@@ -1,13 +1,13 @@
-# utils/data_utils.py
+from __future__ import annotations
 
-from collections.abc import Sequence
-import yfinance as yf
-import pandas as pd
-from datetime import date, timedelta
 import sqlite3
+from collections.abc import Sequence
+from datetime import date
+import pandas as pd
+import yfinance as yf
 
-from common import data  # Import the data module for DB name
-from utils import logger_utils  # Import our custom logger utility
+from common import data
+from utils import logger_utils
 
 logger = logger_utils.get_logger(__name__)
 
@@ -35,6 +35,84 @@ def _get_db_date_range(conn: sqlite3.Connection,
   return min_db_date, max_db_date
 
 
+def _get_tickers_to_download(conn: sqlite3.Connection, tickers: Sequence[str],
+                             start_date: date, end_date: date) -> list[str]:
+  """Determines which tickers need to be downloaded based on existing DB data."""
+  tickers_to_download = []
+  req_start_date_obj = pd.to_datetime(start_date).date()
+  req_end_date_obj = pd.to_datetime(end_date).date()
+
+  for ticker in tickers:
+    if _check_table_exists(conn, ticker):
+      min_db_date, max_db_date = _get_db_date_range(conn, ticker)
+
+      if min_db_date and max_db_date and \
+         min_db_date <= req_start_date_obj and max_db_date >= req_end_date_obj:
+        logger.info(
+            "Data for %s from %s to %s already exists in DB. Skipping download.",
+            ticker, start_date, end_date)
+        continue
+      logger.info(
+          "Partial data for %s in DB or range not fully covered for %s to %s. Will download.",
+          ticker, start_date, end_date)
+      tickers_to_download.append(ticker)
+    else:
+      logger.info("Table for %s does not exist in DB. Will download.", ticker)
+      tickers_to_download.append(ticker)
+  return tickers_to_download
+
+
+def _download_from_yfinance(tickers: list[str], start_date: date,
+                            end_date: date) -> pd.DataFrame:
+  """Downloads stock data from yfinance."""
+  logger.info("Downloading data for missing tickers: %s from %s to %s",
+              ', '.join(tickers), start_date, end_date)
+
+  yf_start_date_str = start_date.strftime('%Y-%m-%d')
+  yf_end_date_obj = end_date + pd.Timedelta(days=1)
+  yf_end_date_str = yf_end_date_obj.strftime('%Y-%m-%d')
+
+  try:
+    raw_stock_data = yf.download(tickers=tickers,
+                                 start=yf_start_date_str,
+                                 end=yf_end_date_str,
+                                 progress=False)
+    return raw_stock_data
+  except Exception as e:
+    logger.error("Error downloading stock data from yfinance: %s", e)
+    raise RuntimeError(
+        f"Error downloading stock data from yfinance: {e}") from e
+
+
+def _save_data_to_db(
+    conn: sqlite3.Connection, raw_data: pd.DataFrame,
+    tickers_to_download: list[str]) -> dict[str, pd.DataFrame]:
+  """Saves downloaded stock data to the SQLite database."""
+  downloaded_dfs = {}
+  if isinstance(raw_data.columns, pd.MultiIndex):
+    for ticker in tickers_to_download:
+      if ticker in raw_data.columns.levels[1]:
+        stock_df = raw_data.loc[:, (slice(None), ticker)]
+        stock_df.columns = stock_df.columns.droplevel(1)
+        stock_df.index = pd.to_datetime(stock_df.index)
+        stock_df.to_sql(name=ticker, con=conn, if_exists='replace', index=True)
+        downloaded_dfs[ticker] = stock_df
+      else:
+        logger.warning(
+            "Data for %s was requested but not found in yfinance download result.",
+            ticker)
+  elif not raw_data.empty and tickers_to_download:
+    # This case handles a single ticker download where raw_data is not MultiIndex
+    ticker = tickers_to_download[0]
+    raw_data.index = pd.to_datetime(raw_data.index)
+    raw_data.to_sql(name=ticker, con=conn, if_exists='replace', index=True)
+    downloaded_dfs[ticker] = raw_data
+  else:
+    logger.warning(
+        "yfinance download returned empty data for the requested tickers.")
+  return downloaded_dfs
+
+
 def download_stock_data(tickers: Sequence[str], start_date: date,
                         end_date: date) -> dict[str, pd.DataFrame]:
   """
@@ -52,35 +130,15 @@ def download_stock_data(tickers: Sequence[str], start_date: date,
                              Returns an empty dictionary if no new data was downloaded.
   """
   downloaded_data_dfs = {}
-  conn = None
+  conn: sqlite3.Connection | None = None
   try:
     conn = sqlite3.connect(data.DATA_DB_NAME)
-  except Exception as e:
-    logger.error(f"Error connecting to database: {e}")
-    raise RuntimeError(f"Error connecting to database: {e}")
+  except sqlite3.Error as e:
+    logger.error("Error connecting to database: %s", e)
+    raise RuntimeError(f"Error connecting to database: {e}") from e
 
-  tickers_to_download = []
-  for ticker in tickers:
-    if _check_table_exists(conn, ticker):
-      min_db_date, max_db_date = _get_db_date_range(conn, ticker)
-
-      req_start_date_obj = pd.to_datetime(start_date).date()
-      req_end_date_obj = pd.to_datetime(end_date).date()
-
-      if min_db_date and max_db_date and \
-         min_db_date <= req_start_date_obj and max_db_date >= req_end_date_obj:
-        logger.info(
-            f"Data for {ticker} from {start_date} to {end_date} already exists in DB. Skipping download."
-        )
-        continue
-      else:
-        logger.info(
-            f"Partial data for {ticker} in DB or range not fully covered for {start_date} to {end_date}. Will download."
-        )
-        tickers_to_download.append(ticker)
-    else:
-      logger.info(f"Table for {ticker} does not exist in DB. Will download.")
-      tickers_to_download.append(ticker)
+  tickers_to_download = _get_tickers_to_download(conn, tickers, start_date,
+                                                 end_date)
 
   if not tickers_to_download:
     logger.info(
@@ -89,53 +147,22 @@ def download_stock_data(tickers: Sequence[str], start_date: date,
     conn.close()
     return {}
 
-  try:
-    logger.info(
-        f"Downloading data for missing tickers: {', '.join(tickers_to_download)} from {start_date} to {end_date}"
-    )
+  raw_stock_data = _download_from_yfinance(tickers_to_download, start_date,
+                                           end_date)
 
-    yf_start_date_str = start_date.strftime('%Y-%m-%d')
-    yf_end_date_obj = end_date + pd.Timedelta(days=1)
-    yf_end_date_str = yf_end_date_obj.strftime('%Y-%m-%d')
-
-    raw_stock_data = yf.download(tickers=tickers_to_download,
-                                 start=yf_start_date_str,
-                                 end=yf_end_date_str)
-  except Exception as e:
-    logger.error(f"Error downloading stock data: {e}")
-    raise RuntimeError(f"Error downloading stock data: {e}")
-
-  if isinstance(raw_stock_data.columns, pd.MultiIndex):
-    for ticker in tickers_to_download:
-      if ticker in raw_stock_data.columns.levels[1]:
-        stock_df = raw_stock_data.loc[:, (slice(None), ticker)]
-        stock_df.columns = stock_df.columns.droplevel(1)
-        stock_df.index = pd.to_datetime(stock_df.index)
-        # Use if_exists='replace' to ensure full range is replaced if partial existed
-        stock_df.to_sql(name=ticker, con=conn, if_exists='replace', index=True)
-        downloaded_data_dfs[ticker] = stock_df
-      else:
-        logger.warning(
-            f"Data for {ticker} was requested but not found in yfinance download result."
-        )
-  elif not raw_stock_data.empty:
-    if tickers_to_download:
-      ticker = tickers_to_download[0]
-      raw_stock_data.index = pd.to_datetime(raw_stock_data.index)
-      raw_stock_data.to_sql(name=ticker,
-                            con=conn,
-                            if_exists='replace',
-                            index=True)
-      downloaded_data_dfs[ticker] = raw_stock_data
-  else:
+  if raw_stock_data.empty:
     logger.warning(
-        "yfinance download returned empty data for the requested tickers.")
+        "No data downloaded from yfinance for the requested tickers.")
+    conn.close()
+    return {}
+
+  downloaded_data_dfs = _save_data_to_db(conn, raw_stock_data,
+                                         tickers_to_download)
 
   conn.close()
   if downloaded_data_dfs:
-    logger.info(
-        f"Successfully downloaded and saved data for {len(downloaded_data_dfs)} tickers."
-    )
+    logger.info("Successfully downloaded and saved data for %d tickers.",
+                len(downloaded_data_dfs))
   else:
     logger.info("No new data was downloaded or saved.")
 
@@ -149,74 +176,79 @@ def download_and_save_latest_data(symbol: str,
     Downloads the latest daily data for a single symbol from yfinance and saves it to SQLite.
     Returns the latest closing price if successful, otherwise None.
     """
-  logger.info(
-      f"Attempting to download latest data for {symbol} from yfinance...")
+  logger.info("Attempting to download latest data for %s from yfinance...",
+              symbol)
+  conn: sqlite3.Connection | None = None
+  today = date.today()
   try:
-    today = date.today()
-    raw_data = yf.download(
-        tickers=symbol, period='2d',
-        interval='1d')  # Get last 2 days to ensure latest close
+    raw_data = yf.download(tickers=symbol,
+                           period='2d',
+                           interval='1d',
+                           progress=False)
+  except Exception as e:
+    logger.error("Error downloading latest data for %s from yfinance: %s",
+                 symbol, e)
+    return None
 
-    if raw_data.empty:
-      logger.warning(
-          f"No latest data found for {symbol} from yfinance for the last 2 days."
-      )
-      return None
+  if raw_data.empty:
+    logger.warning(
+        "No latest data found for %s from yfinance for the last 2 days.",
+        symbol)
+    return None
 
-    raw_data.index = pd.to_datetime(raw_data.index)
-    raw_data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+  raw_data.index = pd.to_datetime(raw_data.index)
+  raw_data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
 
-    latest_data_row = raw_data.iloc[[-1]]  # Get the very last available row
+  latest_data_row = raw_data.iloc[[-1]]  # Get the very last available row
 
-    if latest_data_row.empty:
-      logger.warning(
-          f"No valid latest data found for {symbol} to determine current price."
-      )
-      return None
+  if latest_data_row.empty:
+    logger.warning(
+        "No valid latest data found for %s to determine current price.",
+        symbol)
+    return None
 
-    current_price = latest_data_row['Close'].iloc[0]
-    latest_data_date = latest_data_row.index[0].date()
+  current_price = latest_data_row['Close'].iloc[0]
+  latest_data_date = latest_data_row.index[0].date()
 
-    if latest_data_date == today:
-      logger.info(
-          f"Successfully downloaded today's data for {symbol}. Current Close: {current_price:.2f}"
-      )
-    else:
-      logger.info(
-          f"Latest data for {symbol} is from {latest_data_date.strftime('%Y-%m-%d')}. Using its Close: {current_price:.2f}"
-      )
+  if latest_data_date == today:
+    logger.info(
+        "Successfully downloaded today's data for %s. Current Close: %.2f",
+        symbol, current_price)
+  else:
+    logger.info("Latest data for %s is from %s. Using its Close: %.2f", symbol,
+                latest_data_date.strftime('%Y-%m-%d'), current_price)
 
-    # Save to SQLite
+  try:
     conn = sqlite3.connect(db_path)
-    # Check if today's data already exists to avoid duplicates if running multiple times on same day
     if _check_table_exists(conn, symbol):
-      min_db_date, max_db_date = _get_db_date_range(conn, symbol)
+      _, max_db_date = _get_db_date_range(conn, symbol)
       if max_db_date == latest_data_date:
         logger.info(
-            f"Latest data for {symbol} on {latest_data_date} already exists in DB. Skipping append."
-        )
-        conn.close()
+            "Latest data for %s on %s already exists in DB. Skipping append.",
+            symbol, latest_data_date)
         return current_price
 
-    # Append only the latest row to avoid re-appending older data
     latest_data_row.to_sql(name=symbol,
                            con=conn,
                            if_exists='append',
                            index=True)
-    conn.close()
-    logger.info(
-        f"Latest data for {symbol} on {latest_data_date.strftime('%Y-%m-%d')} saved to {db_path}."
-    )
+    logger.info("Latest data for %s on %s saved to %s.", symbol,
+                latest_data_date.strftime('%Y-%m-%d'), db_path)
 
     return current_price
 
-  except Exception as e:
-    logger.error(f"Error downloading or saving latest data for {symbol}: {e}")
+  except sqlite3.Error as e:
+    logger.error(
+        "Database error while downloading or saving latest data for %s: %s",
+        symbol, e)
     return None
+  finally:
+    if conn:
+      conn.close()
 
 
 def fetch_stock_data_from_sqlite(db_path: str, symbol: str, start_date: str,
-                                 end_date: str):
+                                 end_date: str) -> pd.DataFrame | None:
   """
     Retrieves OHLCV data for a given stock and date range from an SQLite database.
 
@@ -230,50 +262,47 @@ def fetch_stock_data_from_sqlite(db_path: str, symbol: str, start_date: str,
       pd.DataFrame: Pandas DataFrame containing OHLCV data, with Date as index.
                     Returns None if data does not exist or is empty.
     """
-  conn = None
+  conn: sqlite3.Connection | None = None
+  query = f"""
+      SELECT Date, Open, High, Low, Close, Volume
+      FROM {symbol}
+      WHERE Date BETWEEN '{start_date}' AND '{end_date}'
+      ORDER BY Date ASC;
+      """
+  logger.info("Fetching data for %s from %s to %s from database '%s'...",
+              symbol, start_date, end_date, db_path)
   try:
     conn = sqlite3.connect(db_path)
-    query = f"""
-        SELECT Date, Open, High, Low, Close, Volume
-        FROM {symbol}
-        WHERE Date BETWEEN '{start_date}' AND '{end_date}'
-        ORDER BY Date ASC;
-        """
-    logger.info(
-        f"Fetching data for {symbol} from {start_date} to {end_date} from database '{db_path}'..."
-    )
 
-    data = pd.read_sql_query(query,
-                             conn,
-                             index_col='Date',
-                             parse_dates=['Date'])
-
-    if data.empty:
-      logger.warning(
-          f"No data found for {symbol} in the database or data is empty.")
-      return None
-
-    data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-
-    logger.info(f"Successfully fetched {len(data)} data points.")
-    return data
+    stock_data = pd.read_sql_query(query,
+                                   conn,
+                                   index_col='Date',
+                                   parse_dates=['Date'])
 
   except sqlite3.Error as e:
-    logger.error(f"Database operation error: {e}")
+    logger.error("Database operation error for %s: %s", symbol, e)
     return None
   except pd.errors.DatabaseError as e:
-    logger.error(f"Pandas database reading error: {e}")
-    return None
-  except Exception as e:
-    logger.error(f"Unexpected Error: {e}")
+    logger.error("Pandas database reading error for %s: %s", symbol, e)
     return None
   finally:
     if conn:
       conn.close()
 
+  if stock_data.empty:
+    logger.warning("No data found for %s in the database or data is empty.",
+                   symbol)
+    return None
 
-def fetch_multiple_stock_data_from_sqlite(db_path: str, symbols: list[str],
-                                          start_date: str, end_date: str):
+  stock_data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+
+  logger.info("Successfully fetched %d data points.", len(stock_data))
+  return stock_data
+
+
+def fetch_multiple_stock_data_from_sqlite(
+    db_path: str, symbols: list[str], start_date: str,
+    end_date: str) -> dict[str, pd.DataFrame] | None:
   """
     Fetches OHLCV data for multiple stocks from an SQLite database.
 
@@ -288,20 +317,21 @@ def fetch_multiple_stock_data_from_sqlite(db_path: str, symbols: list[str],
                                 If data retrieval for a certain stock fails, it will not be included in the dictionary.
     """
   all_stock_data = {}
-  logger.info(
-      f"Fetching data for multiple stocks ({', '.join(symbols)}) from {start_date} to {end_date}..."
-  )
+  logger.info("Fetching data for multiple stocks (%s) from %s to %s...",
+              ', '.join(symbols), start_date, end_date)
   for symbol in symbols:
-    data = fetch_stock_data_from_sqlite(db_path, symbol, start_date, end_date)
-    if data is not None and not data.empty:
-      all_stock_data[symbol] = data
+    stock_df = fetch_stock_data_from_sqlite(db_path, symbol, start_date,
+                                            end_date)
+    if stock_df is not None and not stock_df.empty:
+      all_stock_data[symbol] = stock_df
     else:
       logger.warning(
-          f"Could not retrieve valid data for {symbol}, skipping this stock.")
+          "Could not retrieve valid data for %s, skipping this stock.", symbol)
 
   if not all_stock_data:
     logger.error("No stock data was successfully retrieved.")
     return None
 
-  logger.info(f"Successfully retrieved data for {len(all_stock_data)} stocks.")
+  logger.info("Successfully retrieved data for %d stocks.",
+              len(all_stock_data))
   return all_stock_data

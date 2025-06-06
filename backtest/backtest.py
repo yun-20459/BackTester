@@ -1,14 +1,13 @@
-import matplotlib.pyplot as plt
 import argparse
+import importlib
+import json
 import logging
-from datetime import datetime, date
-import json  # Import json for config file parsing
-import importlib  # Import importlib for dynamic module loading
+import sys
+from datetime import datetime
 
-from utils import data_utils
 from common import data
 from core import engine as backtesting_engine
-from utils import logger_utils
+from utils import data_utils, logger_utils
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,17 +56,17 @@ def _load_config(config_path: str) -> dict:
   try:
     with open(config_path, 'r', encoding='utf-8') as f:
       config = json.load(f)
-    logger.info(f"Configuration loaded from: {config_path}")
+    logger.info("Configuration loaded from: %s", config_path)
     return config
   except FileNotFoundError:
-    logger.critical(f"Config file not found at: {config_path}")
-    exit(1)
+    logger.critical("Config file not found at: %s", config_path)
+    sys.exit(1)
   except json.JSONDecodeError as e:
-    logger.critical(f"Error parsing config file {config_path}: {e}")
-    exit(1)
+    logger.critical("Error parsing config file %s: %s", config_path, e)
+    sys.exit(1)
   except Exception as e:
-    logger.critical(f"An unexpected error occurred while loading config: {e}")
-    exit(1)
+    logger.critical("An unexpected error occurred while loading config: %s", e)
+    sys.exit(1)
 
 
 def main():
@@ -93,11 +92,11 @@ def main():
     logger.critical(
         "Config error: Missing essential parameters in 'backtest_params' (start_date, end_date, symbols, initial_capital, commission_rate)."
     )
-    exit(1)
+    sys.exit(1)
   if not strategy_config or 'name' not in strategy_config or 'module' not in strategy_config:
     logger.critical(
         "Config error: 'strategy' section or 'name'/'module' missing.")
-    exit(1)
+    sys.exit(1)
 
   # Convert date strings to date objects
   try:
@@ -105,9 +104,9 @@ def main():
     END_DATE = datetime.strptime(end_date_str, '%Y-%m-%d').date()
   except ValueError as e:
     logger.critical(
-        f"Config error: Invalid date format in 'backtest_params' (expected YYYY-MM-DD): {e}"
-    )
-    exit(1)
+        "Config error: Invalid date format in 'backtest_params' (expected YYYY-MM-DD): %s",
+        e)
+    sys.exit(1)
 
   # 1. Download missing stock data
   logger.info("Starting data download/check...")
@@ -123,7 +122,7 @@ def main():
     logger.critical(
         "No stock data was successfully retrieved for backtest, program will exit."
     )
-    exit(1)
+    sys.exit(1)
 
   # 3. Initialize backtesting engine
   engine_instance = backtesting_engine.BacktestingEngine(
@@ -140,10 +139,9 @@ def main():
         f"strategy.{strategy_module_name}")
     strategy_class = getattr(strategy_module, strategy_name)
   except (ImportError, AttributeError) as e:
-    logger.critical(
-        f"Failed to load strategy '{strategy_name}' from module '{strategy_module_name}': {e}"
-    )
-    exit(1)
+    logger.critical("Failed to load strategy '%s' from module '%s': %s",
+                    strategy_name, strategy_module_name, e)
+    sys.exit(1)
 
   engine_instance.set_strategy(strategy_class, **strategy_params)
 

@@ -1,16 +1,15 @@
-import pandas as pd
-from datetime import date, timedelta
 import argparse
-import logging
-import json
 import importlib
+import json
+import logging
 import sys
-import os
+from datetime import date, timedelta
 
-from common import data
-from utils import data_utils, logger_utils
+import pandas as pd
+
+from common import data, market
 from core import account
-from common import market
+from utils import data_utils, logger_utils
 
 logger = logger_utils.get_logger(__name__)
 
@@ -57,17 +56,17 @@ def _load_config(config_path: str) -> dict:
   try:
     with open(config_path, 'r', encoding='utf-8') as f:
       config = json.load(f)
-    logger.info(f"Configuration loaded from: {config_path}")
+    logger.info("Configuration loaded from: %s", config_path)
     return config
   except FileNotFoundError:
-    logger.critical(f"Config file not found at: {config_path}")
-    exit(1)
+    logger.critical("Config file not found at: %s", config_path)
+    sys.exit(1)
   except json.JSONDecodeError as e:
-    logger.critical(f"Error parsing config file {config_path}: {e}")
-    exit(1)
+    logger.critical("Error parsing config file %s: %s", config_path, e)
+    sys.exit(1)
   except Exception as e:
-    logger.critical(f"An unexpected error occurred while loading config: {e}")
-    exit(1)
+    logger.critical("An unexpected error occurred while loading config: %s", e)
+    sys.exit(1)
 
 
 def _prepare_historical_data(symbol: str, current_date: date,
@@ -94,11 +93,56 @@ def _prepare_historical_data(symbol: str, current_date: date,
 
   if not historical_dfs or symbol not in historical_dfs:
     logger.error(
-        f"Could not fetch sufficient historical data for {symbol}. Cannot generate signal."
-    )
+        "Could not fetch sufficient historical data for %s. Cannot generate signal.",
+        symbol)
     return None
 
   return historical_dfs[symbol]
+
+
+def _load_strategy(strategy_config: dict, broker: account.AccountSimulator):
+  """
+    Dynamically loads and instantiates the trading strategy.
+
+    Args:
+        strategy_config (dict): Dictionary containing 'name', 'module', and 'params' for the strategy.
+        broker (account.AccountSimulator): The broker instance to pass to the strategy.
+
+    Returns:
+        object: An instantiated strategy object.
+
+    Raises:
+        ImportError: If the strategy module or class cannot be found.
+        AttributeError: If the strategy class cannot be found in the module.
+    """
+  strategy_name = strategy_config['name']
+  strategy_module_name = strategy_config['module']
+  strategy_params = strategy_config.get('params', {})
+
+  strategy_module = importlib.import_module(f"strategy.{strategy_module_name}")
+  strategy_class = getattr(strategy_module, strategy_name)
+  return strategy_class(broker, **strategy_params)
+
+
+def _get_current_bar_data(today: date, current_price: float) -> dict:
+  """
+    Prepares today's market data in the expected format.
+
+    Args:
+        today (date): The current date.
+        current_price (float): The current closing price.
+
+    Returns:
+        dict: A dictionary representing today's bar data.
+    """
+  return {
+      'Date': pd.Timestamp(today),
+      'Open': current_price,
+      'High': current_price,
+      'Low': current_price,
+      'Close': current_price,
+      'Volume': 0
+  }
 
 
 def get_today_signal(
@@ -122,70 +166,45 @@ def get_today_signal(
         tuple[market.Signal, int]: A tuple containing the suggested action (Signal.BUY, Signal.SELL, Signal.HOLD)
                                  and the quantity. If Signal.HOLD, quantity will be 0.
     """
-  logger.info(
-      f"Generating signal for {symbol} using strategy '{strategy_config['name']}'..."
-  )
+  logger.info("Generating signal for %s using strategy '%s'...", symbol,
+              strategy_config['name'])
 
   today = date.today()
 
-  # --- Automatically fetch today's price and save to DB ---
   current_price = data_utils.download_and_save_latest_data(symbol, db_path)
   if current_price is None:
-    logger.error(
-        f"Could not get current price for {symbol}. Cannot generate signal.")
+    logger.error("Could not get current price for %s. Cannot generate signal.",
+                 symbol)
     return market.Signal.HOLD, 0
 
   historical_data = _prepare_historical_data(symbol, today,
                                              historical_period_days, db_path)
-
   if historical_data is None:
     return market.Signal.HOLD, 0
 
-  # Create a dummy AccountSimulator to pass to the strategy
   dummy_broker = account.AccountSimulator(initial_dummy_capital,
                                           commission_rate=0.0)
 
-  # --- Dynamic Strategy Loading ---
-  strategy_name = strategy_config['name']
-  strategy_module_name = strategy_config['module']
-  strategy_params = strategy_config.get('params', {})
-
   try:
-    strategy_module = importlib.import_module(
-        f"strategy.{strategy_module_name}")
-    strategy_class = getattr(strategy_module, strategy_name)
+    strategy = _load_strategy(strategy_config, dummy_broker)
   except (ImportError, AttributeError) as e:
     logger.error(
-        f"Failed to load strategy '{strategy_name}' from module '{strategy_module_name}': {e}"
+        "Failed to load strategy '%s' from module '%s': %s",
+        strategy_config['name'],
+        strategy_config['module'],
+        e,
     )
     return market.Signal.HOLD, 0
 
-  # Instantiate the strategy with parameters from config
-  strategy = strategy_class(dummy_broker, **strategy_params)
-
-  # Prepare current day's data as a dictionary, ensuring 'Date' is explicitly included
-  current_bar_data = {
-      'Date': pd.Timestamp(today),
-      'Open': current_price,
-      'High': current_price,
-      'Low': current_price,
-      'Close': current_price,
-      'Volume': 0
-  }
-
-  # Create a single-row DataFrame for combined_data, setting 'Date' as index here
+  current_bar_data = _get_current_bar_data(today, current_price)
   current_data_for_combined_df = pd.DataFrame([current_bar_data
                                                ]).set_index('Date')
-
-  # Combine historical data with today's data for strategy's on_bar method
   combined_data = pd.concat([historical_data, current_data_for_combined_df])
 
-  # Call the strategy's on_bar method
   action, quantity = strategy.on_bar(symbol, current_bar_data, combined_data)
 
-  logger.info(
-      f"Signal for {symbol} on {today.strftime('%Y-%m-%d')}: {action.value} {quantity} shares."
-  )
+  logger.info("Signal for %s on %s: %s %d shares.", symbol,
+              today.strftime('%Y-%m-%d'), action.value, quantity)
   return action, quantity
 
 
@@ -199,27 +218,22 @@ def main():
   strategy_config = config.get('strategy')
   signal_generation_params = config.get('signal_generation_params', {})
 
-  # Get stock_list from config
-  config_stock_list = config.get('stock_list',
-                                 [])  # Changed from stocks_info to stock_list
+  config_stock_list = config.get('stock_list', [])
 
-  # Validate essential config parts
   if not strategy_config or 'name' not in strategy_config or 'module' not in strategy_config:
     logger.critical(
         "Config error: 'strategy' section or 'name'/'module' missing.")
-    exit(1)
-  if not config_stock_list:  # Validate stock_list
+    sys.exit(1)
+  if not config_stock_list:
     logger.critical("Config error: 'stock_list' section is missing or empty.")
-    exit(1)
+    sys.exit(1)
 
-  # Determine target symbols from config
-  target_symbols = [symbol.upper() for symbol in config_stock_list
-                    ]  # Directly use the list of symbols
+  target_symbols = [symbol.upper() for symbol in config_stock_list]
 
   if not target_symbols:
     logger.critical(
         "Config error: No valid stock symbols found in 'stock_list' section.")
-    exit(1)
+    sys.exit(1)
 
   all_signals = {}
   for symbol in target_symbols:
@@ -232,12 +246,11 @@ def main():
             'initial_dummy_capital', 100_000.0))
     all_signals[symbol] = {'action': action.value, 'quantity': quantity}
 
-  logger.info(
-      f"\n--- Today's Trading Signals Summary ({len(all_signals)} stocks) ---")
+  logger.info("\n--- Today's Trading Signals Summary (%d stocks) ---",
+              len(all_signals))
   for symbol, signal_info in all_signals.items():
-    logger.info(
-        f"  {symbol}: Action: {signal_info['action']}, Quantity: {signal_info['quantity']}"
-    )
+    logger.info("  %s: Action: %s, Quantity: %d", symbol,
+                signal_info['action'], signal_info['quantity'])
   logger.info("------------------------------------------")
 
 

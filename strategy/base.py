@@ -1,6 +1,7 @@
 import pandas as pd
+
+from common import market
 from utils import logger_utils
-from common.market import Signal  # Import the Signal enum
 
 logger = logger_utils.get_logger(__name__)
 
@@ -20,11 +21,10 @@ class BaseStrategy:
                     Note: The strategy will no longer directly execute orders; it will return a suggested action.
         """
     self.broker = broker
-    logger.info(f"Strategy '{self.__class__.__name__}' initialized.")
+    logger.info("Strategy '%s' initialized.", self.__class__.__name__)
 
-  def on_bar(
-      self, symbol: str, current_data: dict, historical_data: pd.DataFrame
-  ) -> tuple[Signal, int]:  # Updated return type hint
+  def on_bar(self, symbol: str, current_data: dict,
+             historical_data: pd.DataFrame) -> tuple[market.Signal, int]:
     """
         Called when new bar data arrives.
         All trading logic for the strategy will be implemented in this method.
@@ -40,5 +40,5 @@ class BaseStrategy:
             tuple[Signal, int]: A tuple containing the suggested action (Signal.BUY, Signal.SELL, Signal.HOLD)
                                 and the quantity. If Signal.HOLD, quantity should be 0.
         """
-    # This is an abstract method, concrete strategies need to override it.
-    return Signal.HOLD, 0  # Default to hold
+    del symbol, current_data, historical_data
+    return market.Signal.HOLD, 0
