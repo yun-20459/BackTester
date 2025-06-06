@@ -1,11 +1,7 @@
-# ml_models/model_loader.py
-
-# import joblib # Removed: No longer supporting scikit-learn model loading
 import os
-import logging
+
 import torch
-import torch.nn as nn  # For defining a dummy PyTorch model architecture
-import importlib  # For dynamically importing model architecture if needed
+from torch import nn
 
 from utils import logger_utils
 
@@ -20,7 +16,7 @@ logger = logger_utils.get_logger(__name__)
 class SimpleBinaryClassifier(nn.Module):
 
   def __init__(self, input_dim):
-    super(SimpleBinaryClassifier, self).__init__()
+    super().__init__()
     self.fc1 = nn.Linear(input_dim, 32)
     self.relu = nn.ReLU()
     self.fc2 = nn.Linear(32, 1)
@@ -40,20 +36,18 @@ class MLModelLoader:
 
   def __init__(self):
     self.device = self._get_device()
-    logger.info(f"MLModelLoader initialized. Using device: {self.device}")
+    logger.info("MLModelLoader initialized. Using device: %s", self.device)
 
   def _get_device(self):
     """Detects and returns the appropriate PyTorch device (CUDA if available, else CPU)."""
     if torch.cuda.is_available():
       return torch.device("cuda")
-    elif torch.backends.mps.is_available():  # For Apple Silicon Macs
+    if torch.backends.mps.is_available():
       return torch.device("mps")
-    else:
-      return torch.device("cpu")
+    return torch.device("cpu")
 
-  def load_model(
-      self, model_path: str, model_architecture_name: str,
-      model_input_dim: int):  # Added model_architecture_name, model_input_dim
+  def load_model(self, model_path: str, model_architecture_name: str,
+                 model_input_dim: int):
     """
         Loads a pre-trained PyTorch model's state_dict into its architecture.
 
@@ -68,21 +62,15 @@ class MLModelLoader:
         Raises:
             FileNotFoundError: If the model state_dict file does not exist.
             ValueError: If the model architecture name is not found.
-            Exception: For other loading errors.
+            RuntimeError: For other loading errors.
         """
     if not os.path.exists(model_path):
-      logger.error(f"Model state_dict file not found at: {model_path}")
+      logger.error("Model state_dict file not found at: %s", model_path)
       raise FileNotFoundError(
           f"Model state_dict file not found at: {model_path}")
 
     try:
       # Dynamically get the model architecture class
-      # This assumes the model class is defined in this file or a well-known module.
-      # If your model classes are in a separate file like 'ml_models/architectures.py',
-      # you would do: model_module = importlib.import_module("ml_models.architectures")
-      #                model_class = getattr(model_module, model_architecture_name)
-
-      # For this example, we assume SimpleBinaryClassifier is defined directly in this file
       model_class = globals().get(model_architecture_name)
       if model_class is None:
         raise ValueError(
@@ -97,19 +85,22 @@ class MLModelLoader:
       model.eval()  # Set model to evaluation mode
       model.to(self.device)  # Move model to detected device
       logger.info(
-          f"Successfully loaded PyTorch model state_dict from: {model_path} to device: {self.device}"
-      )
+          "Successfully loaded PyTorch model state_dict from: %s to device: %s",
+          model_path, self.device)
 
       return model
+    except (FileNotFoundError, ValueError) as e:
+      raise e
     except Exception as e:
       logger.critical(
-          f"Error loading PyTorch model from {model_path} (architecture: {model_architecture_name}): {e}"
-      )
-      raise Exception(f"Failed to load PyTorch model from {model_path}: {e}")
+          "Error loading PyTorch model from %s (architecture: %s): %s",
+          model_path, model_architecture_name, e)
+      raise RuntimeError(
+          f"Failed to load PyTorch model from {model_path}: {e}") from e
 
   # The get_model_metadata method remains largely conceptual for simplicity.
   def get_model_metadata(self, model_path: str) -> dict:
-    logger.info(f"Retrieving metadata for model at: {model_path}")
+    logger.info("Retrieving metadata for model at: %s", model_path)
     return {"model_path": model_path}
 
 

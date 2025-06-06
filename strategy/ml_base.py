@@ -1,12 +1,14 @@
-import pandas as pd
-import numpy as np
-import torch
+from __future__ import annotations
+
 import abc
 
-from strategy.base import BaseStrategy
-from utils import logger_utils
+import pandas as pd
+import torch
+
 from common import market
 from ml_models.model_loader import model_loader
+from strategy.base import BaseStrategy
+from utils import logger_utils
 
 logger = logger_utils.get_logger(__name__)
 
@@ -27,7 +29,6 @@ class MLBase(BaseStrategy, abc.ABC):
       model_architecture_name: str,  # Name of the PyTorch model class
       model_input_dim: int,  # Input dimension for the PyTorch model
       feature_cols: list,  # List of feature columns expected by the model
-      **kwargs  # For any other optional base parameters
   ):
     super().__init__(broker)
     self.model_path = model_path
@@ -43,17 +44,17 @@ class MLBase(BaseStrategy, abc.ABC):
                                            self.model_input_dim)
     except Exception as e:
       logger.critical(
-          f"MLBase: Failed to initialize due to model loading error: {e}")
+          "MLBase: Failed to initialize due to model loading error: %s", e)
       raise  # Re-raise to stop the application if model can't be loaded
 
     self.positions_status = {
     }  # {'symbol': {'in_position': bool, 'entry_price': float}}
 
-    logger.info(f"  MLBase Strategy Base Initialized:")
-    logger.info(f"    Model Path: {self.model_path}")
-    logger.info(f"    Model Architecture: {self.model_architecture_name}")
-    logger.info(f"    Model Input Dim: {self.model_input_dim}")
-    logger.info(f"    Expected Features: {self.feature_cols}")
+    logger.info("  MLBase Strategy Base Initialized:")
+    logger.info("    Model Path: %s", self.model_path)
+    logger.info("    Model Architecture: %s", self.model_architecture_name)
+    logger.info("    Model Input Dim: %s", self.model_input_dim)
+    logger.info("    Expected Features: %s", self.feature_cols)
 
   @abc.abstractmethod
   def _engineer_features(self,
@@ -62,7 +63,6 @@ class MLBase(BaseStrategy, abc.ABC):
         Abstract method: Subclasses must implement this for specific feature engineering.
         Ensures no look-ahead bias.
         """
-    pass  # To be implemented by concrete subclasses
 
   def _make_prediction(self, features_df: pd.DataFrame) -> float | None:
     """
@@ -98,14 +98,14 @@ class MLBase(BaseStrategy, abc.ABC):
                                                   1].item()  # Prob of class 1
         else:
           logger.warning(
-              f"Unexpected PyTorch model output shape: {output.shape}. Returning None."
-          )
+              "Unexpected PyTorch model output shape: %s. Returning None.",
+              output.shape)
           return None
 
       return prediction_proba
 
     except Exception as e:
-      logger.error(f"Error during ML model prediction: {e}. Returning None.")
+      logger.error("Error during ML model prediction: %s. Returning None.", e)
       return None
 
   @abc.abstractmethod
@@ -117,7 +117,6 @@ class MLBase(BaseStrategy, abc.ABC):
         Abstract method: Subclasses must implement this for specific trading logic.
         Based on the model's prediction and current state, decides BUY, SELL, or HOLD.
         """
-    pass  # To be implemented by concrete subclasses
 
   def on_bar(self, symbol: str, current_data: dict,
              historical_data: pd.DataFrame) -> tuple[market.Signal, int]:
@@ -138,18 +137,16 @@ class MLBase(BaseStrategy, abc.ABC):
     features_df = self._engineer_features(historical_data)
 
     if features_df is None:  # Features could not be engineered
-      logger.debug(
-          f"  {current_data['Date'].strftime('%Y-%m-%d')} - {symbol}: Features missing. Holding."
-      )
+      logger.debug("  %s - %s: Features missing. Holding.",
+                   current_data['Date'].strftime('%Y-%m-%d'), symbol)
       return market.Signal.HOLD, 0
 
     # 2. Model Inference
     prediction_output = self._make_prediction(features_df)
 
     if prediction_output is None:  # Prediction failed
-      logger.debug(
-          f"  {current_data['Date'].strftime('%Y-%m-%d')} - {symbol}: Prediction failed. Holding."
-      )
+      logger.debug("  %s - %s: Prediction failed. Holding.",
+                   current_data['Date'].strftime('%Y-%m-%d'), symbol)
       return market.Signal.HOLD, 0
 
     # 3. Make Trading Decision (implemented by subclass)
@@ -172,7 +169,7 @@ class MLBase(BaseStrategy, abc.ABC):
       self.positions_status[symbol]['in_position'] = False
       self.positions_status[symbol]['entry_price'] = None
 
-    logger.debug(
-        f"  {current_data['Date'].strftime('%Y-%m-%d')} - {symbol}: Predicted P: {prediction_output:.2f} -> Action: {action.value}, Qty: {quantity}"
-    )
+    logger.debug("  %s - %s: Predicted P: %.2f -> Action: %s, Qty: %s",
+                 current_data['Date'].strftime('%Y-%m-%d'), symbol,
+                 prediction_output, action.value, quantity)
     return action, quantity

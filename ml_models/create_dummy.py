@@ -1,10 +1,6 @@
-# create_dummy_pytorch_model.py
-# 運行這個腳本一次，它會在 ml_models/ 下創建一個啞巴 PyTorch 模型檔案
-
 import torch
 import torch.nn as nn
 import os
-import numpy as np  # Import numpy for dummy data
 
 
 # 1. Define a simple PyTorch model architecture
