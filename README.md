@@ -139,12 +139,28 @@ Example parameters for `MyMLStrategy` (defined in `strategy/example_ml.py`):
   "params": {  
     "model_path": "ml_models/my_pytorch_model_state_dict.pt",  
     "model_architecture_name": "SimpleBinaryClassifier",  
-    "model_input_dim": 6,  
-    "feature_cols": ["SMA_10", "RSI_14", "MACD", "MACD_Signal", "Daily_Return", "Prev_Close"],  
-    "buy_threshold": 0.55,  
-    "sell_threshold": 0.45,  
-    "stop_loss_pct": 0.05,  
-    "take_profit_pct": 0.15  
+      "model_config": {
+        "model_input_dim": 6,
+      },
+      "feature_cols": [
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "SMA_10",
+        "SMA_20",
+        "EMA_10",
+        "EMA_20",
+        "BB_Upper",
+        "BB_Middle",
+        "BB_Lower",
+        "RSI_14"
+      ],
+      "buy_threshold": 0.55,
+      "sell_threshold": 0.45,
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.15,
   }  
 }
 ```

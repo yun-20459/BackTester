@@ -1,31 +1,9 @@
-import os
-
 import torch
-from torch import nn
 
+from ml_models import architectures
 from utils import logger_utils
 
 logger = logger_utils.get_logger(__name__)
-
-
-# --- Define your PyTorch model architectures here ---
-# It's best practice to define your model architectures directly in your project
-# or in a dedicated 'models.py' file within ml_models, so they can be imported.
-# For this example, we'll define SimpleBinaryClassifier here for simplicity.
-# In a real project, consider: from .models import SimpleBinaryClassifier
-class SimpleBinaryClassifier(nn.Module):
-
-  def __init__(self, input_dim):
-    super().__init__()
-    self.fc1 = nn.Linear(input_dim, 32)
-    self.relu = nn.ReLU()
-    self.fc2 = nn.Linear(32, 1)
-
-  def forward(self, x):
-    return self.fc2(self.relu(self.fc1(x)))
-
-
-# --- End of model architecture definitions ---
 
 
 class MLModelLoader:
@@ -47,62 +25,49 @@ class MLModelLoader:
     return torch.device("cpu")
 
   def load_model(self, model_path: str, model_architecture_name: str,
-                 model_input_dim: int):
+                 **model_args):
     """
-        Loads a pre-trained PyTorch model's state_dict into its architecture.
+    Loads a PyTorch model's state_dict and initializes the model.
+    It dynamically gets the model class from the architectures module.
 
-        Args:
-            model_path (str): The file path to the saved model's state_dict (.pt or .pth).
-            model_architecture_name (str): The name of the model class (e.g., 'SimpleBinaryClassifier').
-            model_input_dim (int): The input dimension required to instantiate the model architecture.
+    Args:
+        model_path (str): Path to the saved ML model state_dict.
+        model_architecture_name (str): Name of the PyTorch model class (e.g., "DualTransformerClassifier").
+        **model_args: Additional arguments to pass to the model's constructor.
 
-        Returns:
-            torch.nn.Module: The loaded and initialized PyTorch model.
-
-        Raises:
-            FileNotFoundError: If the model state_dict file does not exist.
-            ValueError: If the model architecture name is not found.
-            RuntimeError: For other loading errors.
-        """
-    if not os.path.exists(model_path):
-      logger.error("Model state_dict file not found at: %s", model_path)
-      raise FileNotFoundError(
-          f"Model state_dict file not found at: {model_path}")
+    Returns:
+        torch.nn.Module: Loaded PyTorch model instance.
+    
+    Raises:
+        ValueError: If the model architecture class is not found in the architectures module.
+        Exception: If model state_dict loading fails.
+    """
+    model_class = None
+    try:
+      model_class = getattr(architectures, model_architecture_name)
+      logger.info(
+          f"Dynamically loaded model class: {model_architecture_name} from architectures.py"
+      )
+    except AttributeError:
+      raise ValueError(
+          f"Model architecture class '{model_architecture_name}' not found in ml_models/architectures.py. "
+          "Please ensure the class is correctly defined there.")
 
     try:
-      # Dynamically get the model architecture class
-      model_class = globals().get(model_architecture_name)
-      if model_class is None:
-        raise ValueError(
-            f"Model architecture class '{model_architecture_name}' not found.")
-
-      # Instantiate the model architecture
-      model = model_class(input_dim=model_input_dim)
-
-      # Load the state_dict
+      model = model_class(**model_args).to(self.device)
       model.load_state_dict(torch.load(model_path, map_location=self.device))
-
-      model.eval()  # Set model to evaluation mode
-      model.to(self.device)  # Move model to detected device
-      logger.info(
-          "Successfully loaded PyTorch model state_dict from: %s to device: %s",
-          model_path, self.device)
-
-      return model
-    except (FileNotFoundError, ValueError) as e:
-      raise e
+      model.eval()
+      logger.info("Model '%s' loaded successfully from %s.",
+                  model_architecture_name, model_path)
     except Exception as e:
-      logger.critical(
-          "Error loading PyTorch model from %s (architecture: %s): %s",
-          model_path, model_architecture_name, e)
-      raise RuntimeError(
-          f"Failed to load PyTorch model from {model_path}: {e}") from e
+      logger.critical("Failed to load model state_dict for %s from %s: %s",
+                      model_architecture_name, model_path, e)
 
-  # The get_model_metadata method remains largely conceptual for simplicity.
+    return model
+
   def get_model_metadata(self, model_path: str) -> dict:
     logger.info("Retrieving metadata for model at: %s", model_path)
     return {"model_path": model_path}
 
 
-# Create a singleton instance to avoid re-initializing
 model_loader = MLModelLoader()

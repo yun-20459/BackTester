@@ -3,3 +3,8 @@ __pycache__
 *.log
 strategy/*_strategy.py
 *.pt
+ml_models/architectures.py
+ml_models/create_my_*.py
+ml_models/*.json
+ml_models/*.npz
+*.db

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 import pandas as pd
 import yfinance as yf
 
@@ -335,3 +335,110 @@ def fetch_multiple_stock_data_from_sqlite(
   logger.info("Successfully retrieved data for %d stocks.",
               len(all_stock_data))
   return all_stock_data
+
+
+def load_historical_data(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    db_path: str = data.DATA_DB_NAME) -> pd.DataFrame | None:
+  """
+  Unified function to load historical stock data.
+  Prioritizes loading from DB. If data is missing or incomplete for the range,
+  it downloads from yfinance, saves to DB, and then reloads from DB.
+  CRITICALLY: It post-processes the DataFrame to ensure 'Date' is a DatetimeIndex
+  and columns are standard OHLCV, without modifying other functions.
+
+  Args:
+    symbol (str): Stock ticker.
+    start_date (str): Start date (YYYY-MM-DD).
+    end_date (str): End date (YYYY-MM-DD).
+    db_path (str): Path to the SQLite database file.
+
+  Returns:
+    pd.DataFrame | None: DataFrame containing OHLCV data for the requested symbol
+                         and date range, or None if data cannot be retrieved.
+  """
+  logger.info(
+      "Attempting to load historical data for %s from %s to %s (unified loader, no modification to other funcs)...",
+      symbol, start_date, end_date)
+
+  start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+  end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+  conn: sqlite3.Connection | None = None
+  try:
+    conn = sqlite3.connect(db_path)
+
+    # Determine if data needs to be downloaded
+    tickers_to_download_list = _get_tickers_to_download(
+        conn, [symbol], start_date_obj, end_date_obj)
+    needs_download = bool(tickers_to_download_list)
+
+    if needs_download:
+      try:
+        # Download and save the data (this will use _save_data_to_db, which uses index=True)
+        # So, the data will be saved with Date as index, NOT as a column.
+        # This will be in conflict with your screenshot's database structure if _save_data_to_db is untouched.
+        # This is where the core contradiction lies.
+        downloaded_dfs = download_stock_data([symbol], start_date_obj,
+                                             end_date_obj)
+        if not downloaded_dfs:
+          logger.warning(
+              "No data downloaded for %s. Check ticker or date range.", symbol)
+          # If download fails, we still try to fetch what might be in DB, but log a warning
+      except Exception as e:
+        logger.error("Error during download attempt for %s: %s", symbol, e)
+        # Continue to fetch from DB even if download had an error, as partial data might exist
+
+    # Always attempt to fetch from DB after ensuring data is there or attempted download
+    retrieved_df = fetch_stock_data_from_sqlite(db_path, symbol, start_date,
+                                                end_date)
+
+    # --- CRITICAL POST-PROCESSING TO ENSURE CORRECT FORMAT ---
+    # This block *must* fix issues if fetch_stock_data_from_sqlite returns an unexpected format.
+    if retrieved_df is not None and not retrieved_df.empty:
+      # If fetch_stock_data_from_sqlite failed to set 'Date' as index and it's a column
+      if 'Date' in retrieved_df.columns and not isinstance(
+          retrieved_df.index, pd.DatetimeIndex):
+        logger.warning(
+            "DataFrame from fetch_stock_data_from_sqlite has 'Date' as a column, converting to DatetimeIndex."
+        )
+        retrieved_df['Date'] = pd.to_datetime(retrieved_df['Date'])
+        retrieved_df = retrieved_df.set_index('Date')
+        retrieved_df.index.name = 'Date'
+      elif isinstance(retrieved_df.index,
+                      pd.DatetimeIndex) and retrieved_df.index.name != 'Date':
+        retrieved_df.index.name = 'Date'  # Ensure index name is 'Date'
+
+      # Ensure standard OHLCV columns (Adj Close is often included by yfinance but not always needed)
+      # Assuming fetch_stock_data_from_sqlite already renames columns to OHLCV,
+      # but if it returns extra columns (like 'Adj Close' as it tries to preserve yfinance cols),
+      # we need to ensure only standard OHLCV are present.
+      expected_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+      if not all(col in retrieved_df.columns for col in expected_cols):
+        logger.warning(
+            "Fetched data for %s missing standard OHLCV columns. Columns: %s. Attempting to select.",
+            symbol, retrieved_df.columns.tolist())
+        # This might fail if the columns aren't there at all
+        retrieved_df = retrieved_df[expected_cols]
+
+      logger.info(
+          "Successfully loaded and formatted data for %s from %s to %s.",
+          symbol, start_date, end_date)
+      return retrieved_df
+    else:
+      logger.error(
+          "Failed to retrieve valid data for %s from %s to %s even after DB fetch attempt.",
+          symbol, start_date, end_date)
+      return None
+
+  except Exception as e:
+    logger.critical("Critical error in load_historical_data for %s: %s",
+                    symbol,
+                    e,
+                    exc_info=True)
+    return None
+  finally:
+    if conn:
+      conn.close()

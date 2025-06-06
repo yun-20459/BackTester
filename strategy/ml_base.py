@@ -27,19 +27,19 @@ class MLBase(BaseStrategy, abc.ABC):
       broker,
       model_path: str,
       model_architecture_name: str,
-      model_input_dim: int,
+      model_config: dict,
   ):
     super().__init__(broker)
     self.model_path = model_path
     self.model_architecture_name = model_architecture_name
-    self.model_input_dim = model_input_dim
+    self.model_config = model_config
 
     self.device = model_loader.device
 
     try:
       self.model = model_loader.load_model(self.model_path,
                                            self.model_architecture_name,
-                                           self.model_input_dim)
+                                           **self.model_config)
     except Exception as e:
       logger.critical(
           "MLBase: Failed to initialize due to model loading error: %s", e)
@@ -51,7 +51,6 @@ class MLBase(BaseStrategy, abc.ABC):
     logger.info("  MLBase Strategy Base Initialized:")
     logger.info("    Model Path: %s", self.model_path)
     logger.info("    Model Architecture: %s", self.model_architecture_name)
-    logger.info("    Model Input Dim: %s", self.model_input_dim)
 
   @abc.abstractmethod
   def _engineer_features(self,
