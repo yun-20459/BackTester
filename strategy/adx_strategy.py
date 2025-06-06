@@ -77,9 +77,8 @@ class ADXStrategy(base.BaseStrategy):
     # Ensure enough data for ADX calculation
     if len(data_for_calc) < max(self.adx_period * 2 + 1, self.adx_period +
                                 self.adx_rising_lookback + 1):
-      return market.Signal.HOLD, 0  # Use market.Signal
+      return market.Signal.HOLD, 0
 
-    # --- Calculate ADX, +DI, -DI using TA-Lib ---
     high = data_for_calc['High'].values
     low = data_for_calc['Low'].values
     close = data_for_calc['Close'].values
@@ -90,7 +89,7 @@ class ADXStrategy(base.BaseStrategy):
 
     # Ensure latest values are not NaN before proceeding
     if np.isnan(adx[-1]) or np.isnan(plus_di[-1]) or np.isnan(minus_di[-1]):
-      return market.Signal.HOLD, 0  # Use market.Signal
+      return market.Signal.HOLD, 0
 
     current_adx = adx[-1]
     current_plus_di = plus_di[-1]
@@ -120,9 +119,9 @@ class ADXStrategy(base.BaseStrategy):
         if sell_quantity > 0:
           self.positions_status[symbol]['in_position'] = False
           self.positions_status[symbol]['entry_price'] = None
-          return market.Signal.SELL, sell_quantity  # Use market.Signal
+          return market.Signal.SELL, sell_quantity
         else:  # No position to sell, but condition met, so hold
-          return market.Signal.HOLD, 0  # Use market.Signal
+          return market.Signal.HOLD, 0
 
       # 2. Take Profit Exit (Fixed Percentage OR ADX Weakening)
       take_profit_price = entry_price * (1 + self.take_profit_pct)
@@ -142,9 +141,9 @@ class ADXStrategy(base.BaseStrategy):
 
           self.positions_status[symbol]['in_position'] = False
           self.positions_status[symbol]['entry_price'] = None
-          return market.Signal.SELL, sell_quantity  # Use market.Signal
+          return market.Signal.SELL, sell_quantity
         else:  # No position to sell, but condition met, so hold
-          return market.Signal.HOLD, 0  # Use market.Signal
+          return market.Signal.HOLD, 0
 
       # 3. Trend Reversal Exit: -DI crosses above +DI
       minus_di_cross_above_plus_di = (current_minus_di > current_plus_di) and \
@@ -156,18 +155,17 @@ class ADXStrategy(base.BaseStrategy):
         if sell_quantity > 0:
           self.positions_status[symbol]['in_position'] = False
           self.positions_status[symbol]['entry_price'] = None
-          return market.Signal.SELL, sell_quantity  # Use market.Signal
+          return market.Signal.SELL, sell_quantity
         else:  # No position to sell, but condition met, so hold
-          return market.Signal.HOLD, 0  # Use market.Signal
+          return market.Signal.HOLD, 0
 
     # --- Entry Conditions (Long Position) - Check only if not in position ---
     if not in_position:
       # 1. Trend Strength Confirmation: ADX current value > average of ADX over adx_rising_lookback periods
       #    And ADX current value > adx_trend_threshold
 
-      # Ensure enough data for ADX rising average calculation
       if len(adx) < self.adx_rising_lookback + 1:
-        return market.Signal.HOLD, 0  # Use market.Signal
+        return market.Signal.HOLD, 0
 
       # Calculate average of ADX over the lookback period (excluding current day)
       adx_lookback_avg = np.mean(
@@ -189,8 +187,8 @@ class ADXStrategy(base.BaseStrategy):
         if buy_quantity > 0:
           self.positions_status[symbol]['in_position'] = True
           self.positions_status[symbol]['entry_price'] = current_close_price
-          return market.Signal.BUY, buy_quantity  # Use market.Signal
+          return market.Signal.BUY, buy_quantity
         else:  # Cannot buy (e.g., not enough cash for 1 share), so hold
-          return market.Signal.HOLD, 0  # Use market.Signal
+          return market.Signal.HOLD, 0
 
-    return market.Signal.HOLD, 0  # If no action is taken by any of the conditions
+    return market.Signal.HOLD, 0
